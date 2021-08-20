@@ -1,0 +1,90 @@
+version: '3.7'
+services:
+  odfe-node1:
+    image: amazon/opendistro-for-elasticsearch:1.13.2
+    container_name: odfe-node1
+    environment:
+#      - cluster.name=odfe-cluster
+      - node.name=odfe-node1
+#      - discovery.seed_hosts=odfe-node1
+      - discovery.type=single-node
+#      - cluster.initial_master_nodes=odfe-node1
+      - bootstrap.memory_lock=true # along with the memlock settings below, disables swapping
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g" # minimum and maximum Java heap size, recommend setting both to 50% of system RAM
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536 # maximum number of open files for the Elasticsearch user, set to at least 65536 on modern systems
+        hard: 65536
+    volumes:
+      - odfe-data1:/usr/share/elasticsearch/data
+    ports:
+      - 9200:9200
+#      - 9300:9300
+      - 9600:9600 # required for Performance Analyzer
+    healthcheck:
+      test: ["CMD-SHELL", "curl --silent --fail logcalhost:9200:/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+    networks:
+      - elastic
+  
+  # Cant use logstash versions staring with 7.13 without a license ( 7.12 worked)
+  logstash:
+    image: docker.elastic.co/logstash/logstash-oss:7.12.1-amd64
+    container_name: logstash
+    volumes:
+      - ./logstash.conf:/usr/share/logstash/pipeline/logstash.conf
+    ports:
+      - "5011:5011"
+      - "5012:5012"
+      - "5013:5013"
+    networks:
+      - elastic
+    depends_on:
+      - odfe-node1
+  
+  kibana:
+    image: amazon/opendistro-for-elasticsearch-kibana:1.13.2
+    container_name: odfe-kibana
+    ports:
+      - 5601:5601
+    expose:
+      - "5601"
+    environment:
+      ELASTICSEARCH_URL: https://odfe-node1:9200
+      ELASTICSEARCH_HOSTS: https://odfe-node1:9200
+    networks:
+      - elastic
+      
+  nginx:
+    image: nginx
+    container_name: nginx-test
+#    links:
+#        - odfe-node1:odfe-node1
+#    environment:
+#      - NGINX_HOST=localhost
+#      - NGINX_PORT=80
+    volumes:
+      - ./frontend/nginx/htpasswd:/etc/nginx/htpasswd.users
+      - ./frontend/nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./frontend/ssl/awselk.crt:/etc/nginx/server.crt
+      - ./frontend/ssl/awselk.key:/etc/nginx/server.key
+      - ./frontend/ssl/ca.crt:/etc/ca.crt
+    ports:
+      - 80:80
+      - 443:443
+#   depends_on:
+#      - logstash
+    networks:
+      - elastic
+
+networks:
+  elastic:
+    
+volumes:
+  odfe-data1:
+  
